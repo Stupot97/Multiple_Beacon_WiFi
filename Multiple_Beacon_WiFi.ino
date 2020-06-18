@@ -12,7 +12,7 @@
 //-----Multiple Beacon WiFi Project----//
 //-----Author: Stuart D'Amico----------//
 //
-// Last Date Modified: 6/17/20
+// Last Date Modified: 6/18/20
 // 
 // Description: This project is designed to have several node arduinos connected to a host arduino. Whenever an 
 // event is triggered on a node arduino, the host reacts to this and activates the corresponding LEDs.
@@ -20,6 +20,9 @@
 // back and forth to each other to ensure arduinos are still active and are responding properly.
 // All the software is the same on host and client arduinos, so whether an arduino is a host
 // or client is determined by its MAC Address.
+//
+// Progress: At the moment, this project successfully establishes connections between the host and the nodes.
+// I am currently working on figuring out why the nodes do not successfully send to the host.
 
 
 //Global Variables
@@ -28,7 +31,8 @@ String SSID = "Host Arduino"; //change this SSID to change the network name
 String Password = "7x?j9h*3d("; //change this to change the password required to connect. If node, connect to SSID with password given
 
 bool isHost; //flag that controls whether host or node code executes
-
+bool A = true; //flag for event A
+bool B = false; //flag for event B
 
 //Server-Specific Globals
 WiFiServer server(PORT); // change PORT macro to change access port
@@ -103,6 +107,8 @@ void loop() {
         if(client.available()){             //if there's bytes to read from client
           char c = client.read();           //read byte
           Serial.print(c);
+
+          //add this later when nodes successfully send to host
           /*
           if(c != '\r'){
             if(c == '\n'){
@@ -134,12 +140,11 @@ void loop() {
           //             0   1  |  1
           //             1   0  |  2
           //             1   1  |  3
-
-          //event A flag
-          //remove
-          bool A = true;
-          bool B = false;
-
+          
+          
+          //FOR TESTING
+          A = true;
+          B = true;
           
           if(A){
             if(B){
@@ -162,11 +167,11 @@ void loop() {
           
           uint8_t * intMAC = MACAddrToInt(hostMACAdd);
 
-          /*
+          
           while(esp_now_send(intMAC, &flagMsg, sizeof(flagMsg))!=ESP_OK){
             Serial.println("Failed to send.");
           }
-          */
+          
           Serial.println("Message Sent!");
           delay(5000);
         }
