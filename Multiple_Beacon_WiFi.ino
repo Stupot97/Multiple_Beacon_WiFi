@@ -2,19 +2,16 @@
 #include <ESP8266WiFi.h>
 #include <string.h>
 
-
 //Macros
-
-#define PORT 80
-#define CHANNEL 1
+#define RETRY_INTERVAL 5000
 #define ESP_OK 0
 
 //-----Multiple Beacon WiFi Project----//
 //-----Author: Stuart D'Amico----------//
 //
-// Last Date Modified: 6/27/20
-// 
-// Description: This project is designed to have several node arduinos connected to a host arduino. Whenever an 
+// Last Date Modified: 7/1/20
+//
+// Description: This project is designed to have several node arduinos connected to a host arduino. Whenever an
 // event is triggered on a node arduino, the host reacts to this and activates the corresponding LEDs.
 // The host arduino acts as a server while the node arduinos act as clients. Both the hosts and clients send data
 // back and forth to each other to ensure arduinos are still active and are responding properly.
@@ -22,163 +19,111 @@
 // or client is determined by its MAC Address.
 //
 // Progress: At the moment, this project successfully establishes connections between the host and the nodes.
-// I am currently working on figuring out why the nodes do not successfully send to the host and why two of my ESP8266 boards
-// do not produce any serial output. 
+// I just figured out how to successfully send data between node and host, and now I want to figure out how to send data between host and node.
+
+
+//Data Structures
+struct __attribute__((packed)) NodeInfo {
+  bool A; //event A has occured or is occuring
+  bool B; //event B has occured or is occuring
+  //maybe add pattern to this as well
+};
 
 
 //Global Variables
-char hostMACAdd [18] = "F4:CF:A2:D4:40:F8"; //change this MAC address to change the host node 
-String SSID = "Host Arduino"; //change this SSID to change the network name
-String Password = "7x?j9h*3d("; //change this to change the password required to connect. If node, connect to SSID with password given
-
+char hostMACAdd [18] = "8C:AA:B5:0D:FB:A4"; //change this MAC address to change the host node
+char localMACAdd [18] = "82:88:88:88:88:88"; //locally administered MAC address
 bool isHost; //flag that controls whether host or node code executes
-bool A = true; //flag for event A
-bool B = false; //flag for event B
+const uint8_t channel = 14;
 
 //Server-Specific Globals
-bool haveMessage;        //global for detecting readings
 
 //Client-Specific Globals
+NodeInfo myNodeInfo;
+
 
 
 //Function Prototypes
-uint8_t * MACAddrToInt(String MAC);
-void configDeviceAP(void);
+uint8_t * MACAddToInt(String MAC);
 void initESPNow();
-void wifiConnect();
+void sendData();
+void sendCallBackFunction(uint8_t* mac, uint8_t sendStatus);
+void receiveCallBackFunction(uint8_t *senderMac, uint8_t *incomingData, uint8_t len);
+
+
 
 void setup() {
-    Serial.begin(115200);
-    Serial.println();
-    delay(500);
-    
-    //is it a host or node?
-    if(strcmp(WiFi.macAddress().c_str(),hostMACAdd)){
-      //node
-      isHost = false;
-      uint8_t* intMAC = MACAddrToInt(hostMACAdd);
+  Serial.begin(74880);
+  Serial.println();
 
-      Serial.println("Client powered!");
-      Serial.println();
+  Serial.println("MAC Address: " + WiFi.macAddress());
 
-      //set device in station mode if it's a node
-      WiFi.mode(WIFI_STA); // Station mode for esp-now sensor node
+  //uint8_t* localIntMAC = MACAddToInt(localMACAdd);
+  uint8_t localIntMAC [] = {0x82,0x88,0x88,0x88,0x88,0x88};
+  
+  //is it a host or node?
+  if (strcmp(WiFi.macAddress().c_str(), hostMACAdd)) {
+    //node
+    isHost = false;
 
-      //Enable ESP Now
-      initESPNow();
-      
-      Serial.println("Initialization successful!");
-      
-      //attempt to connect to host
-      Serial.println("Connecting to " + SSID);
 
-      esp_now_set_self_role(ESP_NOW_ROLE_COMBO); 
-      if(esp_now_add_peer(intMAC, ESP_NOW_ROLE_SLAVE, CHANNEL, NULL, 0)!=ESP_OK){
-        Serial.println("Error connecting to host.");
-        //TODO: make this station a host and a node if node limit reached
-      }
+    //Enable ESP Now
+    initESPNow();
 
-      Serial.println("Connection to host successful!");
+    esp_now_set_self_role(ESP_NOW_ROLE_CONTROLLER); //change to combo
+    if (esp_now_add_peer(localIntMAC, ESP_NOW_ROLE_SLAVE, channel, NULL, 0) != ESP_OK) {
+      Serial.println("Error connecting to host.");
+      //TODO: make this station a host and a node if node limit reached
     }
-    else{
-      //host
-      isHost = true;
-      Serial.println("Host powered!");
-      Serial.println();
 
-      //set device in AP mode if it's the host
-      WiFi.mode(WIFI_AP);
-      wifi_set_macaddr(SOFTAP_IF, &intMAC[0]);
-      
-      //Enable ESP Now
-      initESPNow();
-      
-      Serial.println("Initialization successful!");
-      esp_now_set_self_role(ESP_NOW_ROLE_COMBO); 
-      
-      int unsuccessfullyRegistered = esp_now_register_recv_cb([](uint8_t *mac, uint8_t *data, uint8_t len) {
-      
-        String deviceMac = "";
-        deviceMac += String(mac[0], HEX);
-        deviceMac += String(mac[1], HEX);
-        deviceMac += String(mac[2], HEX);
-        deviceMac += String(mac[3], HEX);
-        deviceMac += String(mac[4], HEX);
-        deviceMac += String(mac[5], HEX);
-        
+    int unsuccessfullyRegistered = esp_now_register_send_cb(sendCallBackFunction);
     
-        Serial.println("Message received from device: "); 
-        Serial.println(deviceMac);
-        Serial.println(*data, DEC);
-        //haveMessage = true;
-      });
-
-      if(!unsuccessfullyRegistered){
-        Serial.println("Callback function registered!");
-      }
-      else{
-        Serial.println("Callback function not registered.");
-      }
-
-      Serial.println("Waiting for clients...");
+    if (!unsuccessfullyRegistered) {
+      Serial.println("Callback function registered!");
     }
+    else {
+      Serial.println("Callback function not registered.");
+    }
+  }
+  else {
+    //host
+    isHost = true;
+    
+    //Enable ESP Now
+    initESPNow();
+
+    esp_now_set_self_role(ESP_NOW_ROLE_SLAVE); //change to combo
+
+    int unsuccessfullyRegistered = esp_now_register_recv_cb(receiveCallBackFunction);
+    if (!unsuccessfullyRegistered) {
+      Serial.println("Callback function registered!");
+    }
+    else {
+      Serial.println("Callback function not registered.");
+    }
+    
+    Serial.println("Waiting for messages...");
+  }
 }
 
 void loop() {
-  
-  if(isHost){
-    
+
+  if (isHost) {
+
   }
-  else{
-    
-    String MAC = WiFi.macAddress();
-    uint8_t flagMsg;                  //message for events A and B.
-    
-    
-    //             Inputs | Output
-    //                    |
-    //             A   B  |  flagMsg
-    //             0   0  |  0
-    //             0   1  |  1
-    //             1   0  |  2
-    //             1   1  |  3
-    
-    
+  else {
+
     //FOR TESTING
-    A = true;
-    B = true;
-    
-    if(A){
-      if(B){
-        flagMsg = 3;
-      }
-      else{
-        flagMsg = 2;  
-      }
-    }
-    else{
-      if(B){
-        flagMsg = 1;  
-      }
-      else{
-        flagMsg = 0;
-      }
-    }
-    
-    //String message = IP + " " + String(flagMsg); //maybe add pattern to this as well
-    
-    uint8_t * intMAC = MACAddrToInt(hostMACAdd);
-    
-    
-    while(esp_now_send(intMAC, &flagMsg, sizeof(flagMsg))!=ESP_OK){
-      Serial.println("Failed to send.");
-      delay(2000);
-    }
-    
-    Serial.println("Message Sent!");
-    delay(5000);
+    myNodeInfo.A = true;
+    myNodeInfo.B = true;
+
+
+    //uint8_t * localIntMAC = MACAddToInt(localMACAdd);
+    uint8_t localIntMAC [] = {0x82,0x88,0x88,0x88,0x88,0x88};
+    sendData(localIntMAC); 
+    delay(1000);
   }
-   
+
 }
 
 
@@ -187,59 +132,59 @@ void loop() {
 
 
 
+void sendCallBackFunction(uint8_t* mac, uint8_t sendStatus) {
+  Serial.println(sendStatus == ESP_OK ? "Delivery Success!" : "Delivery Fail.");
+}
 
+void receiveCallBackFunction(uint8_t *senderMac, uint8_t *incomingData, uint8_t len) {
+  memcpy(&myNodeInfo, incomingData, len);
+  Serial.printf("Message from %02x:%02x:%02x:%02x:%02x:%02x: ", senderMac[0], senderMac[1], senderMac[2], senderMac[3], senderMac[4], senderMac[5]);
+  Serial.printf("A is %d", myNodeInfo.A);
+  Serial.printf("B is %d", myNodeInfo.B);
+}
 
 //convert MAC Address string to int
-uint8_t * MACAddrToInt(String MAC){
+uint8_t * MACAddToInt(String MAC) {
   uint8_t hostMACAddArray [6];
   int values[6];
-  
+
   sscanf(hostMACAdd, "%x:%x:%x:%x:%x:%x", &values[0], &values[1], &values[2], &values[3], &values[4], &values[5]);
-  
-  for(int i = 0; i<6; ++i){
+
+  for (int i = 0; i < 6; ++i) {
     hostMACAddArray[i] = (uint8_t) values[i];
   }
   return hostMACAddArray;
 }
 
 
-
-
-//set as Access Point
-void configDeviceAP(){
-  bool result = WiFi.softAP(SSID.c_str(), Password.c_str(), CHANNEL, 0);
-  if (!result)
-  {
-    Serial.printf("AP Config failed.");
+void initESPNow() {
+  if(isHost){
+    WiFi.mode(WIFI_AP); // Host mode for esp-now host
+    //uint8_t * localIntMAC = MACAddToInt(localMACAdd);
+    uint8_t localIntMAC [] = {0x82,0x88,0x88,0x88,0x88,0x88};  //0x8C,0xAA,0xB5,0x0D,0xFB,0xA4
+    if(!wifi_set_macaddr(SOFTAP_IF, localIntMAC)){
+      Serial.println("MAC Address not properly set. Try a different MAC address.");
+    }
+    Serial.println("MAC Address: " + WiFi.macAddress());
+    WiFi.disconnect();
+    
+    Serial.println("This is an ESP-Now host.");
   }
-  else
-  {
-    Serial.printf("AP Config Success. Broadcasting with AP: ");
-    Serial.printf("%s", SSID.c_str());
+  else{
+     WiFi.mode(WIFI_STA); // Station mode for esp-now node
+     WiFi.disconnect();
+     Serial.println("This is an ESP-Now node.");
   }
-}
-
-void initESPNow(){
-  WiFi.disconnect();
-  if (esp_now_init() == ESP_OK) {
-    Serial.println("ESPNow Init Success");
-  }
-  else
-  {
-    Serial.println("ESPNow Init Failed");
+  if (esp_now_init() != 0) {
+    Serial.println("ESP_Now init failed...");
+    delay(RETRY_INTERVAL);
     ESP.restart();
   }
 }
 
+void sendData(uint8_t * destination) {
+  uint8_t message[sizeof(myNodeInfo)];
+  memcpy(message, &myNodeInfo, sizeof(myNodeInfo));
 
-void wifiConnect() {
-  WiFi.mode(WIFI_STA);
-  Serial.printf("");
-  Serial.printf("Connecting... "); //Serial.printf("%s",SSID.c_str());
-  WiFi.begin(SSID, Password);
-  while (WiFi.status() != WL_CONNECTED) {
-     delay(250);
-     Serial.print(".");
-  }  
-  Serial.print("\nWiFi connected."); //Serial.printf("%s",WiFi.localIP().c_str());
+  esp_now_send(destination, message, sizeof(myNodeInfo));
 }
