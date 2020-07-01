@@ -19,7 +19,7 @@
 // or client is determined by its MAC Address.
 //
 // Progress: At the moment, this project successfully establishes connections between the host and the nodes.
-// I just figured out how to successfully send data between node and host, and now I want to figure out how to send data between host and node.
+// I just figured out how to successfully send data between node and host, and now I want to figure out two-way communication between host and node.
 
 
 //Data Structures
@@ -32,19 +32,15 @@ struct __attribute__((packed)) NodeInfo {
 
 //Global Variables
 char hostMACAdd [18] = "8C:AA:B5:0D:FB:A4"; //change this MAC address to change the host node
-char localMACAdd [18] = "82:88:88:88:88:88"; //locally administered MAC address
+uint8_t localMACAdd [] = {0x82,0x88,0x88,0x88,0x88,0x88}; //locally administered MAC address
 bool isHost; //flag that controls whether host or node code executes
 const uint8_t channel = 14;
 
-//Server-Specific Globals
-
-//Client-Specific Globals
 NodeInfo myNodeInfo;
 
 
 
 //Function Prototypes
-uint8_t * MACAddToInt(String MAC);
 void initESPNow();
 void sendData();
 void sendCallBackFunction(uint8_t* mac, uint8_t sendStatus);
@@ -57,9 +53,6 @@ void setup() {
   Serial.println();
 
   Serial.println("MAC Address: " + WiFi.macAddress());
-
-  //uint8_t* localIntMAC = MACAddToInt(localMACAdd);
-  uint8_t localIntMAC [] = {0x82,0x88,0x88,0x88,0x88,0x88};
   
   //is it a host or node?
   if (strcmp(WiFi.macAddress().c_str(), hostMACAdd)) {
@@ -71,7 +64,7 @@ void setup() {
     initESPNow();
 
     esp_now_set_self_role(ESP_NOW_ROLE_CONTROLLER); //change to combo
-    if (esp_now_add_peer(localIntMAC, ESP_NOW_ROLE_SLAVE, channel, NULL, 0) != ESP_OK) {
+    if (esp_now_add_peer(localMACAdd, ESP_NOW_ROLE_SLAVE, channel, NULL, 0) != ESP_OK) {
       Serial.println("Error connecting to host.");
       //TODO: make this station a host and a node if node limit reached
     }
@@ -116,12 +109,10 @@ void loop() {
     //FOR TESTING
     myNodeInfo.A = true;
     myNodeInfo.B = true;
-
-
-    //uint8_t * localIntMAC = MACAddToInt(localMACAdd);
-    uint8_t localIntMAC [] = {0x82,0x88,0x88,0x88,0x88,0x88};
-    sendData(localIntMAC); 
+  
+    sendData(localMACAdd); 
     delay(1000);
+    
   }
 
 }
@@ -139,30 +130,14 @@ void sendCallBackFunction(uint8_t* mac, uint8_t sendStatus) {
 void receiveCallBackFunction(uint8_t *senderMac, uint8_t *incomingData, uint8_t len) {
   memcpy(&myNodeInfo, incomingData, len);
   Serial.printf("Message from %02x:%02x:%02x:%02x:%02x:%02x: ", senderMac[0], senderMac[1], senderMac[2], senderMac[3], senderMac[4], senderMac[5]);
-  Serial.printf("A is %d", myNodeInfo.A);
-  Serial.printf("B is %d", myNodeInfo.B);
+  Serial.printf("A is %d, ", myNodeInfo.A);
+  Serial.printf("B is %d\n", myNodeInfo.B);
 }
-
-//convert MAC Address string to int
-uint8_t * MACAddToInt(String MAC) {
-  uint8_t hostMACAddArray [6];
-  int values[6];
-
-  sscanf(hostMACAdd, "%x:%x:%x:%x:%x:%x", &values[0], &values[1], &values[2], &values[3], &values[4], &values[5]);
-
-  for (int i = 0; i < 6; ++i) {
-    hostMACAddArray[i] = (uint8_t) values[i];
-  }
-  return hostMACAddArray;
-}
-
 
 void initESPNow() {
   if(isHost){
     WiFi.mode(WIFI_AP); // Host mode for esp-now host
-    //uint8_t * localIntMAC = MACAddToInt(localMACAdd);
-    uint8_t localIntMAC [] = {0x82,0x88,0x88,0x88,0x88,0x88};  //0x8C,0xAA,0xB5,0x0D,0xFB,0xA4
-    if(!wifi_set_macaddr(SOFTAP_IF, localIntMAC)){
+    if(!wifi_set_macaddr(SOFTAP_IF, localMACAdd)){
       Serial.println("MAC Address not properly set. Try a different MAC address.");
     }
     Serial.println("MAC Address: " + WiFi.macAddress());
