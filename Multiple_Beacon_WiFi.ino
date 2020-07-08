@@ -33,7 +33,7 @@
 //
 // Progress: At the moment, this project successfully establishes two-way connections between the host and the nodes, lights up
 // the corresponding LEDs on the host side depending on when events A and B occur, and selects patterns from the host side. 
-// Now I'm working on being able to toggle host LEDs from multiple node inputs.
+// Now I'm working on using libraries for LED strings attached to each node and being able to connect at least 128 nodes to a host.
 
 
 //Data Structures
@@ -60,8 +60,16 @@ const uint8_t channel = 14;
 //list of MAC addresses corresponding to local MAC addresses to be used
 std::map<std::string, std::vector<uint8_t>> localMACAddMap = {
   {"8C:AA:B5:0D:FB:A4", {0x82,0x88,0x88,0x88,0x88,0x88}}, //host
-  {"F4:CF:A2:D4:40:F8", {0x84,0x88,0x88,0x88,0x88,0x88}}
+  {"F4:CF:A2:D4:40:F8", {0x84,0x88,0x88,0x88,0x88,0x88}},
+  {"48:3F:DA:65:B9:DA", {0x86,0x88,0x88,0x88,0x88,0x88}}
 };
+
+//list of local MAC addresses corresponding to events A and B
+std::map<std::vector<uint8_t>, std::vector<bool>> eventMap = { 
+  {{0x84,0x88,0x88,0x88,0x88,0x88}, {false, false}},
+  {{0x86,0x88,0x88,0x88,0x88,0x88}, {false, false}}
+};
+
 
 NodeInfo myNodeInfo;
 NodeInfo sentInfo;
@@ -72,7 +80,7 @@ void initESPNow();
 void sendData();
 void sendCallBackFunction(uint8_t* mac, uint8_t sendStatus);
 void receiveCallBackFunction(uint8_t *senderMAC, uint8_t *incomingData, uint8_t len);
-
+void processEvents();
 
 
 void setup() {
@@ -163,6 +171,8 @@ void loop() {
   if (myNodeInfo.isHost) {
     //host
     
+    processEvents();
+    
     if(digitalRead(HOST_INPUT1) == HIGH){
       myNodeInfo.pattern = 0x01;
     }
@@ -215,7 +225,7 @@ void loop() {
 
 
 
-void sendCallBackFunction(uint8_t* mac, uint8_t sendStatus) {
+void sendCallBackFunction(uint8_t * mac, uint8_t sendStatus) {
   Serial.println(sendStatus == ESP_OK ? "Delivery Success!" : "Delivery Fail.");
 }
 
@@ -225,19 +235,14 @@ void receiveCallBackFunction(uint8_t *senderMAC, uint8_t *incomingData, uint8_t 
     memcpy(&sentInfo, incomingData, len);
     Serial.printf("A is %d, ", sentInfo.A);
     Serial.printf("B is %d\n\r", sentInfo.B);
-    if(sentInfo.A){
-      digitalWrite(HOST_OUTPUT1, HIGH);
-    }
-    else{
-      digitalWrite(HOST_OUTPUT1, LOW);
-    }
 
-    if(sentInfo.B){
-      digitalWrite(HOST_OUTPUT2, HIGH);
-    }
-    else{
-      digitalWrite(HOST_OUTPUT2, LOW);
-    }
+
+    //convert senderMAC into array
+    std::vector<uint8_t> vectorMAC(senderMAC, senderMAC + 6);
+    eventMap[vectorMAC] = {sentInfo.A, sentInfo.B};
+
+    processEvents();
+    
     if(esp_now_add_peer(senderMAC, ESP_NOW_ROLE_COMBO, channel, NULL, 0) == ESP_OK){
       Serial.printf("New node connected: %02x:%02x:%02x:%02x:%02x:%02x\n\r", senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5]);
     }
@@ -296,4 +301,36 @@ void sendData(uint8_t * destination) {
     memcpy(message, &myNodeInfo, sizeof(myNodeInfo));
     esp_now_send(destination, message, sizeof(myNodeInfo));
   }
+}
+
+
+//iterate through all devices and check if events A and B are active for any devices
+void processEvents() {
+
+  std::map<std::vector<uint8_t>, std::vector<bool>>::iterator it = eventMap.begin();
+  bool eventA = false;
+  bool eventB = false;
+  
+  while(it != eventMap.end()){
+    
+    eventA |= it->second[0];
+    eventB |= it->second[1];
+
+    ++it;
+  }
+
+   if(eventA){
+    digitalWrite(HOST_OUTPUT1, HIGH);
+   }
+   else{
+    digitalWrite(HOST_OUTPUT1, LOW);
+   }
+   if(eventB){
+    digitalWrite(HOST_OUTPUT2, HIGH);
+   }
+   else{
+    digitalWrite(HOST_OUTPUT2, LOW);
+   }
+  
+  
 }
