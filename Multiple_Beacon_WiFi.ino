@@ -22,7 +22,7 @@
 //-----Multiple Beacon WiFi Project----//
 //-----Author: Stuart D'Amico----------//
 //
-// Last Date Modified: 7/7/20
+// Last Date Modified: 7/9/20
 //
 // Description: This project is designed to have several node arduinos connected to a host arduino. Whenever an
 // event is triggered on a node arduino, the host reacts to this and activates the corresponding LEDs.
@@ -49,26 +49,8 @@ struct __attribute__((packed)) NodeInfo {
 char hostMACAdd [18] = "8C:AA:B5:0D:FB:A4"; //change this MAC address to change the host node
 const uint8_t channel = 14;
 
-
-//To create a local MAC address, use the following pattern
-//   x2-xx-xx-xx-xx-xx
-//   x6-xx-xx-xx-xx-xx
-//   xA-xx-xx-xx-xx-xx
-//   xE-xx-xx-xx-xx-xx
-
-
-//list of MAC addresses corresponding to local MAC addresses to be used
-std::map<std::string, std::vector<uint8_t>> localMACAddMap = {
-  {"8C:AA:B5:0D:FB:A4", {0x82,0x88,0x88,0x88,0x88,0x88}}, //host
-  {"F4:CF:A2:D4:40:F8", {0x84,0x88,0x88,0x88,0x88,0x88}},
-  {"48:3F:DA:65:B9:DA", {0x86,0x88,0x88,0x88,0x88,0x88}}
-};
-
 //list of local MAC addresses corresponding to events A and B
-std::map<std::vector<uint8_t>, std::vector<bool>> eventMap = { 
-  {{0x84,0x88,0x88,0x88,0x88,0x88}, {false, false}},
-  {{0x86,0x88,0x88,0x88,0x88,0x88}, {false, false}}
-};
+std::map<std::string, std::vector<bool>> eventMap;
 
 
 NodeInfo myNodeInfo;
@@ -101,16 +83,24 @@ void setup() {
     initESPNow();
 
     esp_now_set_self_role(ESP_NOW_ROLE_COMBO);
-    //get corresponding local MAC address from map
+    //convert MAC address to int
+    int hostIntMAC [6];
+    uint8_t hostUintMAC [6];
     
-    uint8_t localHostMACAdd[localMACAddMap[hostMACAdd].size()];
-    std::copy(localMACAddMap[hostMACAdd].begin(), localMACAddMap[hostMACAdd].end(), localHostMACAdd);
     
-    if (esp_now_add_peer(localHostMACAdd, ESP_NOW_ROLE_COMBO, channel, NULL, 0) != ESP_OK) {
-      Serial.println("Error connecting to host.");
-      //TODO: make this station a host and a node if node limit reached
-    }
+    sscanf(hostMACAdd, "%x:%x:%x:%x:%x:%x%*c",
+    &hostIntMAC[0], &hostIntMAC[1], &hostIntMAC[2],
+    &hostIntMAC[3], &hostIntMAC[4], &hostIntMAC[5]); 
 
+    for(int i=0; i<6; ++i){
+        hostUintMAC[i] = (uint8_t) hostIntMAC[i];
+    }
+    
+    if (esp_now_add_peer(hostUintMAC, ESP_NOW_ROLE_COMBO, channel, NULL, 0) != ESP_OK) {
+      Serial.println("Error connecting to host.");
+    }
+    
+    
     int sendUnsuccessfullyRegistered = esp_now_register_send_cb(sendCallBackFunction);
     int receiveUnsuccessfullyRegistered = esp_now_register_recv_cb(receiveCallBackFunction);
     
@@ -210,13 +200,21 @@ void loop() {
     }
 
     //get host's local MAC address
-    uint8_t hostLocalMACAdd[localMACAddMap[hostMACAdd].size()];
-    std::copy(localMACAddMap[hostMACAdd].begin(), localMACAddMap[hostMACAdd].end(), hostLocalMACAdd);
+    int hostIntMAC [6];
+    uint8_t hostUintMAC [6];
+    
+    
+    sscanf(hostMACAdd, "%x:%x:%x:%x:%x:%x%*c",
+    &hostIntMAC[0], &hostIntMAC[1], &hostIntMAC[2],
+    &hostIntMAC[3], &hostIntMAC[4], &hostIntMAC[5]); 
+
+    for(int i=0; i<6; ++i){
+        hostUintMAC[i] = (uint8_t) hostIntMAC[i];
+    }
      
-    sendData(hostLocalMACAdd); 
+    sendData(hostUintMAC); 
     delay(1000);
   }
-
 }
 
 
@@ -237,9 +235,11 @@ void receiveCallBackFunction(uint8_t *senderMAC, uint8_t *incomingData, uint8_t 
     Serial.printf("B is %d\n\r", sentInfo.B);
 
 
-    //convert senderMAC into array
-    std::vector<uint8_t> vectorMAC(senderMAC, senderMAC + 6);
-    eventMap[vectorMAC] = {sentInfo.A, sentInfo.B};
+    //convert senderMAC into string
+    char senderMACString [18];
+    sprintf(senderMACString, "%d:%d:%d:%d:%d:%d", senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5]);
+    
+    eventMap[senderMACString] = {sentInfo.A, sentInfo.B};
 
     processEvents();
     
@@ -255,31 +255,12 @@ void receiveCallBackFunction(uint8_t *senderMAC, uint8_t *incomingData, uint8_t 
 
 void initESPNow() {
   if(myNodeInfo.isHost){
-    WiFi.mode(WIFI_AP); // Host mode for esp-now host
-    uint8_t localMACAdd[localMACAddMap[WiFi.macAddress().c_str()].size()];
-    std::copy(localMACAddMap[WiFi.macAddress().c_str()].begin(), localMACAddMap[WiFi.macAddress().c_str()].end(), localMACAdd); 
-    if(!wifi_set_macaddr(SOFTAP_IF, localMACAdd)){
-      Serial.println("MAC Address not properly set. Try a different MAC address.");
-    }
-    else{
-      Serial.printf("Local MAC Address Set To %02x:%02x:%02x:%02x:%02x:%02x\n\r", localMACAdd[0], localMACAdd[1], localMACAdd[2], localMACAdd[3], localMACAdd[4], localMACAdd[5]);
-    }
+    WiFi.mode(WIFI_STA); // Host mode for esp-now host
     WiFi.disconnect();
-    
     Serial.println("This is an ESP-Now host.");
   }
   else{
      WiFi.mode(WIFI_STA); // Station mode for esp-now node
-     //get corresponding local MAC address from map
-     uint8_t localMACAdd[localMACAddMap[WiFi.macAddress().c_str()].size()];
-     std::copy(localMACAddMap[WiFi.macAddress().c_str()].begin(), localMACAddMap[WiFi.macAddress().c_str()].end(), localMACAdd);
-     
-     if(!wifi_set_macaddr(STATION_IF, localMACAdd)){
-      Serial.println("MAC Address not properly set. Try a different MAC address.");
-     }
-     else{
-      Serial.printf("Local MAC Address Set To %02x:%02x:%02x:%02x:%02x:%02x\n\r", localMACAdd[0], localMACAdd[1], localMACAdd[2], localMACAdd[3], localMACAdd[4], localMACAdd[5]); 
-     }
      WiFi.disconnect();
      Serial.println("This is an ESP-Now node.");
   }
@@ -307,7 +288,7 @@ void sendData(uint8_t * destination) {
 //iterate through all devices and check if events A and B are active for any devices
 void processEvents() {
 
-  std::map<std::vector<uint8_t>, std::vector<bool>>::iterator it = eventMap.begin();
+  std::map<std::string, std::vector<bool>>::iterator it = eventMap.begin();
   bool eventA = false;
   bool eventB = false;
   
@@ -331,6 +312,7 @@ void processEvents() {
    else{
     digitalWrite(HOST_OUTPUT2, LOW);
    }
-  
+
+  Serial.printf("A is %d, B is %d\n\r",eventA, eventB);
   
 }
