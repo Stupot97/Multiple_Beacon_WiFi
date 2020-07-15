@@ -2,6 +2,7 @@
 #include <ESP8266WiFi.h>
 #include <string.h>
 #include <map>
+#include <FastLED.h>
 
 //Macros
 #define RETRY_INTERVAL 5000
@@ -22,7 +23,7 @@
 //-----Multiple Beacon WiFi Project----//
 //-----Author: Stuart D'Amico----------//
 //
-// Last Date Modified: 7/9/20
+// Last Date Modified: 7/15/20
 //
 // Description: This project is designed to have several node arduinos connected to a host arduino. Whenever an
 // event is triggered on a node arduino, the host reacts to this and activates the corresponding LEDs.
@@ -63,7 +64,7 @@ void sendData();
 void sendCallBackFunction(uint8_t* mac, uint8_t sendStatus);
 void receiveCallBackFunction(uint8_t *senderMAC, uint8_t *incomingData, uint8_t len);
 void processEvents();
-
+void processPatterns();
 
 void setup() {
   Serial.begin(74880);
@@ -162,22 +163,7 @@ void loop() {
     //host
     
     processEvents();
-    
-    if(digitalRead(HOST_INPUT1) == HIGH){
-      myNodeInfo.pattern = 0x01;
-    }
-    if(digitalRead(HOST_INPUT2) == HIGH){
-      myNodeInfo.pattern = 0x02;
-    }
-    if(digitalRead(HOST_INPUT3) == HIGH){
-      myNodeInfo.pattern = 0x03; 
-    }
-    if(digitalRead(HOST_INPUT4) == HIGH){
-      myNodeInfo.pattern = 0x04;
-    }
-    if(digitalRead(HOST_INPUT5) == HIGH){
-      myNodeInfo.pattern = 0x05;
-    }
+    processPatterns();
     
     sendData(NULL);
     delay(2000);
@@ -185,19 +171,7 @@ void loop() {
   else {
     //node
     
-    if(digitalRead(NODE_INPUT1) == HIGH){
-      myNodeInfo.A = true;   
-    }
-    else{
-      myNodeInfo.A = false;  
-    }
-    
-    if(digitalRead(NODE_INPUT2) == HIGH){
-      myNodeInfo.B = true;   
-    }
-    else{
-      myNodeInfo.B = false;  
-    }
+    processEvents();
 
     //get host's local MAC address
     int hostIntMAC [6];
@@ -288,31 +262,70 @@ void sendData(uint8_t * destination) {
 //iterate through all devices and check if events A and B are active for any devices
 void processEvents() {
 
-  std::map<std::string, std::vector<bool>>::iterator it = eventMap.begin();
-  bool eventA = false;
-  bool eventB = false;
-  
-  while(it != eventMap.end()){
+  if(myNodeInfo.isHost) {
+    //host
+    std::map<std::string, std::vector<bool>>::iterator it = eventMap.begin();
+    bool eventA = false;
+    bool eventB = false;
     
-    eventA |= it->second[0];
-    eventB |= it->second[1];
-
-    ++it;
-  }
-
-   if(eventA){
-    digitalWrite(HOST_OUTPUT1, HIGH);
-   }
-   else{
-    digitalWrite(HOST_OUTPUT1, LOW);
-   }
-   if(eventB){
-    digitalWrite(HOST_OUTPUT2, HIGH);
-   }
-   else{
-    digitalWrite(HOST_OUTPUT2, LOW);
-   }
-
-  Serial.printf("A is %d, B is %d\n\r",eventA, eventB);
+    while(it != eventMap.end()){
+      
+      eventA |= it->second[0];
+      eventB |= it->second[1];
   
+      ++it;
+    }
+  
+     if(eventA){
+      digitalWrite(HOST_OUTPUT1, HIGH);
+     }
+     else{
+      digitalWrite(HOST_OUTPUT1, LOW);
+     }
+     if(eventB){
+      digitalWrite(HOST_OUTPUT2, HIGH);
+     }
+     else{
+      digitalWrite(HOST_OUTPUT2, LOW);
+     }
+  
+    Serial.printf("A is %d, B is %d\n\r",eventA, eventB);
+  }
+  else{
+    //node
+    if(digitalRead(NODE_INPUT1) == HIGH){
+      myNodeInfo.A = true;   
+    }
+    else{
+      myNodeInfo.A = false;  
+    }
+    if(digitalRead(NODE_INPUT2) == HIGH){
+      myNodeInfo.B = true;   
+    }
+    else{
+      myNodeInfo.B = false;  
+    }
+  
+  }
+  
+  
+}
+
+//check each host input and select corresponding pattern
+void processPatterns() {
+  if(digitalRead(HOST_INPUT1) == HIGH){
+    myNodeInfo.pattern = 0x01;
+  }
+  if(digitalRead(HOST_INPUT2) == HIGH){
+    myNodeInfo.pattern = 0x02;
+  }
+  if(digitalRead(HOST_INPUT3) == HIGH){
+    myNodeInfo.pattern = 0x03; 
+  }
+  if(digitalRead(HOST_INPUT4) == HIGH){
+    myNodeInfo.pattern = 0x04;
+  }
+  if(digitalRead(HOST_INPUT5) == HIGH){
+    myNodeInfo.pattern = 0x05;
+  }
 }
