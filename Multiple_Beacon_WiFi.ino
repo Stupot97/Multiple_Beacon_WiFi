@@ -37,7 +37,7 @@
 //-----Multiple Beacon WiFi Project----//
 //-----Author: Stuart D'Amico----------//
 //
-// Last Date Modified: 7/16/20
+// Last Date Modified: 7/17/20
 //
 // Description: This project is designed to have several node arduinos connected to a host arduino. Whenever an
 // event is triggered on a node arduino, the host reacts to this and activates the corresponding LEDs.
