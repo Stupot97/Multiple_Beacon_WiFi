@@ -9,13 +9,13 @@
 #define RETRY_INTERVAL 5000
 #define ESP_OK 0
 
-#define HOST_INPUT1 D4
-#define HOST_INPUT2 D5
-#define HOST_INPUT3 D6
-#define HOST_INPUT4 D7
-#define HOST_INPUT5 D8
-#define HOST_OUTPUT1 D2
-#define HOST_OUTPUT2 D3
+#define HOST_INPUT1 D1
+#define HOST_INPUT2 D2
+#define HOST_INPUT3 D5
+#define HOST_INPUT4 D6
+#define HOST_INPUT5 D7
+#define HOST_OUTPUT1 D3
+#define HOST_OUTPUT2 D4
 
 #define NODE_INPUT1 D6
 #define NODE_INPUT2 D7
@@ -26,6 +26,13 @@
 #define NUM_LEDS 60 //macro of number of LEDs
 #define LED_TYPE    WS2812
 #define COLOR_ORDER GRB
+
+#define NO_PATTERN 0x00
+#define PATTERN1 0x01
+#define PATTERN2 0x02
+#define PATTERN3 0x03
+#define PATTERN4 0x04
+#define PATTERN5 0x05
 
 //-----Multiple Beacon WiFi Project----//
 //-----Author: Stuart D'Amico----------//
@@ -72,6 +79,7 @@ void receiveCallBackFunction(uint8_t *senderMAC, uint8_t *incomingData, uint8_t 
 void processEvents();
 void processPatterns();
 
+void noPattern();
 void pattern1();
 void pattern2();
 void pattern3();
@@ -88,19 +96,15 @@ void setup() {
   if (strcmp(WiFi.macAddress().c_str(), hostMACAdd)){
     //node
     myNodeInfo.isHost = false;
+    myNodeInfo.pattern = NO_PATTERN;
     
     pinMode(NODE_INPUT1, INPUT);
     pinMode(NODE_INPUT2, INPUT);
-
 
     //add NUM_LEDS amount of LEDS to each NODE_OUTPUT
     FastLED.addLeds<LED_TYPE,NODE_OUTPUT1,COLOR_ORDER>(leds, NUM_LEDS).setCorrection(TypicalSMD5050);
     FastLED.addLeds<LED_TYPE,NODE_OUTPUT2,COLOR_ORDER>(leds, NUM_LEDS).setCorrection(TypicalSMD5050);
     FastLED.addLeds<LED_TYPE,NODE_OUTPUT3,COLOR_ORDER>(leds, NUM_LEDS).setCorrection(TypicalSMD5050);
-
-//    FastLED.addLeds<NEOPIXEL, NODE_OUTPUT1>(leds, NUM_LEDS);
-  //  FastLED.addLeds<NEOPIXEL, NODE_OUTPUT2>(leds, NUM_LEDS);
-    //FastLED.addLeds<NEOPIXEL, NODE_OUTPUT3>(leds, NUM_LEDS);
 
     //Enable ESP Now
     initESPNow();
@@ -143,8 +147,8 @@ void setup() {
   else {
     //host
     myNodeInfo.isHost = true;
-
-    myNodeInfo.pattern = 0x00;
+    myNodeInfo.pattern = NO_PATTERN;
+    
     pinMode(HOST_INPUT1, INPUT);
     pinMode(HOST_INPUT2, INPUT);
     pinMode(HOST_INPUT3, INPUT);
@@ -205,7 +209,7 @@ void loop() {
     &hostIntMAC[3], &hostIntMAC[4], &hostIntMAC[5]); 
 
     for(int i=0; i<6; ++i){
-        hostUintMAC[i] = (uint8_t) hostIntMAC[i];
+      hostUintMAC[i] = (uint8_t) hostIntMAC[i];
     }
      
     sendData(hostUintMAC); 
@@ -228,13 +232,12 @@ void receiveCallBackFunction(uint8_t *senderMAC, uint8_t *incomingData, uint8_t 
   if(myNodeInfo.isHost){
     memcpy(&sentInfo, incomingData, len);
     Serial.printf("A is %d, ", sentInfo.A);
-    Serial.printf("B is %d\n\r", sentInfo.B);
-
+    Serial.printf("B is %d, ", sentInfo.B);
+    Serial.printf("Pattern set to %d.\n\r", sentInfo.pattern);
 
     //convert senderMAC into string
     char senderMACString [18];
-    sprintf(senderMACString, "%d:%d:%d:%d:%d:%d", senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5]);
-    
+    sprintf(senderMACString, "%d:%d:%d:%d:%d:%d", senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5]);    
     eventMap[senderMACString] = {sentInfo.A, sentInfo.B};
 
     processEvents();
@@ -246,6 +249,7 @@ void receiveCallBackFunction(uint8_t *senderMAC, uint8_t *incomingData, uint8_t 
   else{
     memcpy(&sentInfo, incomingData, len);
     Serial.printf("Node: Pattern %d selected.\n\r", sentInfo.pattern);
+    myNodeInfo.pattern = sentInfo.pattern;
   }
 }
 
@@ -336,37 +340,54 @@ void processEvents() {
 void processPatterns() {
   if(myNodeInfo.isHost) {
     if(digitalRead(HOST_INPUT1) == HIGH){
-      myNodeInfo.pattern = 0x01;
+      myNodeInfo.pattern = PATTERN1;
     }
     if(digitalRead(HOST_INPUT2) == HIGH){
-      myNodeInfo.pattern = 0x02;
+      myNodeInfo.pattern = PATTERN2;
     }
     if(digitalRead(HOST_INPUT3) == HIGH){
-      myNodeInfo.pattern = 0x03; 
+      myNodeInfo.pattern = PATTERN3; 
     }
     if(digitalRead(HOST_INPUT4) == HIGH){
-      myNodeInfo.pattern = 0x04;
+      myNodeInfo.pattern = PATTERN4;
     }
     if(digitalRead(HOST_INPUT5) == HIGH){
-      myNodeInfo.pattern = 0x05;
+      myNodeInfo.pattern = PATTERN5;
+    }
+    if(digitalRead(HOST_INPUT1) == LOW && digitalRead(HOST_INPUT2) == LOW && digitalRead(HOST_INPUT3) == LOW && digitalRead(HOST_INPUT4) == LOW && digitalRead(HOST_INPUT5) == LOW){
+      myNodeInfo.pattern = NO_PATTERN;
     }
     Serial.printf("Host: Pattern is %d \n\r", myNodeInfo.pattern);
   }
   else {
     switch(myNodeInfo.pattern){
-      case 0x01:
+      case PATTERN1:
         pattern1();
-      case 0x02:
+        break;
+      case PATTERN2:
         pattern2();
-      case 0x03:
+        break;
+      case PATTERN3:
         pattern3();
-      case 0x04:
+        break;
+      case PATTERN4:
         pattern4();
-      case 0x05:
+        break;
+      case PATTERN5:
         pattern5();
+      case NO_PATTERN:
+        noPattern();
     }
   }
   
+}
+
+//clear all LEDs
+void noPattern() {
+  for(int led = 0; led < NUM_LEDS; ++led) {
+    leds[led] = CRGB::Black;
+  }
+  FastLED.show();
 }
 
 //constant fast blinking pattern
