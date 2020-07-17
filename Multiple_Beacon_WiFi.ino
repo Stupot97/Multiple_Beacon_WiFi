@@ -48,8 +48,14 @@
 //
 // Progress: At the moment, this project successfully establishes two-way connections between the host and the nodes, lights up
 // the corresponding LEDs on the host side depending on when events A and B occur, and selects patterns from the host side. 
-// Now I'm working on being able to connect at least 128 nodes to a host. I have written code for displaying patterns, but 
+// Now I'm working on being able to connect 400 nodes to a host. I have written code for displaying patterns, but 
 // I cannot test it since I don't have access to WS2812 LED strips.
+
+//-----Global Variables----//
+char hostMACAdd [18] = "8C:AA:B5:0D:FB:A4"; //change this MAC address to change the host node
+const uint8_t channel = 14;
+CRGB leds[NUM_LEDS];
+
 
 //-----Data Structures----//
 struct __attribute__((packed)) NodeInfo {
@@ -59,17 +65,34 @@ struct __attribute__((packed)) NodeInfo {
   bool B; //event B has occured or is occuring
 };
 
+char * hostList [21] = { //list of 
+  hostMACAdd,
+  "02:00:00:00:00:00",
+  "12:11:11:11:11:11",
+  "22:22:22:22:22:22",
+  "32:33:33:33:33:33",
+  "42:44:44:44:44:44",
+  "52:55:55:55:55:55",
+  "62:66:66:66:66:66",
+  "72:77:77:77:77:77",
+  "82:88:88:88:88:88",
+  "92:99:99:99:99:99",
+  "A2:AA:AA:AA:AA:AA",
+  "B2:BB:BB:BB:BB:BB",
+  "C2:CC:CC:CC:CC:CC",
+  "D2:DD:DD:DD:DD:DD",
+  "E2:EE:EE:EE:EE:EE",
+  "F2:FF:FF:FF:FF:FF",
+  "04:00:00:00:00:00",
+  "14:11:11:11:11:11",
+  "24:22:22:22:22:22",
+  "34:33:33:33:33:33"
+};
 
 std::map<std::string, std::vector<bool>> eventMap; //list of local MAC addresses corresponding to events A and B
 
 NodeInfo myNodeInfo; //info for each node
 NodeInfo sentInfo; //info received from another node
-
-
-//-----Global Variables----//
-char hostMACAdd [18] = "8C:AA:B5:0D:FB:A4"; //change this MAC address to change the host node
-const uint8_t channel = 14;
-CRGB leds[NUM_LEDS];
 
 //-----Function Prototypes----//
 void initESPNow();
@@ -89,7 +112,6 @@ void pattern5();
 void setup() {
   Serial.begin(74880);
   Serial.println();
-
   Serial.println("MAC Address: " + WiFi.macAddress());
   
   //is it a host or node?
@@ -221,6 +243,7 @@ void loop() {
 
 
 
+//-----Function Definitions----//
 
 
 void sendCallBackFunction(uint8_t * mac, uint8_t sendStatus) {
@@ -285,10 +308,9 @@ void sendData(uint8_t * destination) {
 }
 
 
-//if host: iterate through all devices and check if events A and B are active for any devices
-//if node: check for events A and B on device
 void processEvents() {
-
+  //if host: iterate through all devices and check if events A and B are active for any devices
+  //if node: check for events A and B on device
   if(myNodeInfo.isHost) {
     //host
     std::map<std::string, std::vector<bool>>::iterator it = eventMap.begin();
@@ -335,9 +357,9 @@ void processEvents() {
   }
 }
 
-//if host: check each host input and select corresponding pattern. if multiple patterns are selected, choose the highest number pattern
-//if node: call appropriate pattern function
 void processPatterns() {
+  //if host: check each host input and select corresponding pattern. if multiple patterns are selected, choose the highest number pattern
+  //if node: call appropriate pattern function
   if(myNodeInfo.isHost) {
     if(digitalRead(HOST_INPUT1) == HIGH){
       myNodeInfo.pattern = PATTERN1;
@@ -382,16 +404,17 @@ void processPatterns() {
   
 }
 
-//clear all LEDs
 void noPattern() {
+  //clear all LEDs
   for(int led = 0; led < NUM_LEDS; ++led) {
     leds[led] = CRGB::Black;
   }
   FastLED.show();
 }
 
-//constant fast blinking pattern
+
 void pattern1() {
+  //constant fast blinking pattern
   for(int led = 0; led < NUM_LEDS; ++led) {
     leds[led] = CRGB::Blue;
   }
@@ -403,8 +426,8 @@ void pattern1() {
   delay(30);
 }
 
-//light moving down line pattern
 void pattern2() {
+  //light moving down line pattern
   for(int led = 0; led < NUM_LEDS; ++led) { 
     leds[led] = CRGB::Green;
     FastLED.show();
@@ -413,8 +436,8 @@ void pattern2() {
   }
 }
 
-//every other LED lights up and alternates patterns
 void pattern3() {
+  //every other LED lights up and alternates patterns
   for(int led = 0; led < NUM_LEDS; ++led) { 
     if(led%2){ // if odd number
       leds[led] = CRGB::Black;
@@ -437,8 +460,8 @@ void pattern3() {
   delay(200);
 }
 
-//two lights moving down line pattern 
 void pattern4() {
+  //two lights moving down line pattern 
   for(int led = 0; led < NUM_LEDS; ++led) { 
     leds[led] = CRGB::Purple;
     leds[NUM_LEDS-led] = CRGB::Gold; 
@@ -449,8 +472,8 @@ void pattern4() {
   }
 }
 
-//lights growing down line pattern
 void pattern5() {
+  //lights growing down line pattern
   for(int led = 0; led < NUM_LEDS; ++led) { 
     leds[led] = CRGB::Orange;
     FastLED.show();
