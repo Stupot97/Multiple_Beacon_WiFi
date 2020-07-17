@@ -9,13 +9,13 @@
 #define RETRY_INTERVAL 5000
 #define ESP_OK 0
 
-#define HOST_INPUT1 D0
-#define HOST_INPUT2 D1
-#define HOST_INPUT3 D2
-#define HOST_INPUT4 D3
-#define HOST_INPUT5 D4
-#define HOST_OUTPUT1 D7
-#define HOST_OUTPUT2 D8
+#define HOST_INPUT1 D4
+#define HOST_INPUT2 D5
+#define HOST_INPUT3 D6
+#define HOST_INPUT4 D7
+#define HOST_INPUT5 D8
+#define HOST_OUTPUT1 D2
+#define HOST_OUTPUT2 D3
 
 #define NODE_INPUT1 D6
 #define NODE_INPUT2 D7
@@ -245,7 +245,7 @@ void receiveCallBackFunction(uint8_t *senderMAC, uint8_t *incomingData, uint8_t 
   }
   else{
     memcpy(&sentInfo, incomingData, len);
-    Serial.printf("Pattern %d selected.\n\r", sentInfo.pattern);
+    Serial.printf("Node: Pattern %d selected.\n\r", sentInfo.pattern);
   }
 }
 
@@ -312,7 +312,7 @@ void processEvents() {
       digitalWrite(HOST_OUTPUT2, LOW);
     }
   
-    Serial.printf("A is %d, B is %d\n\r",eventA, eventB);
+    Serial.printf("Host: A is %d, B is %d\n\r",eventA, eventB);
   }
   else{
     //node
@@ -328,11 +328,10 @@ void processEvents() {
     else{
       myNodeInfo.B = false;  
     }
-  
   }
 }
 
-//if host: check each host input and select corresponding pattern
+//if host: check each host input and select corresponding pattern. if multiple patterns are selected, choose the highest number pattern
 //if node: call appropriate pattern function
 void processPatterns() {
   if(myNodeInfo.isHost) {
@@ -351,6 +350,7 @@ void processPatterns() {
     if(digitalRead(HOST_INPUT5) == HIGH){
       myNodeInfo.pattern = 0x05;
     }
+    Serial.printf("Host: Pattern is %d \n\r", myNodeInfo.pattern);
   }
   else {
     switch(myNodeInfo.pattern){
@@ -366,6 +366,7 @@ void processPatterns() {
         pattern5();
     }
   }
+  
 }
 
 //constant fast blinking pattern
