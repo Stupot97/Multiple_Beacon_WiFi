@@ -2,6 +2,7 @@
 #include <ESP8266WiFi.h>
 #include <string.h>
 #include <map>
+#define FASTLED_ESP8266_NODEMCU_PIN_ORDER
 #include <FastLED.h>
 
 //Macros
@@ -16,14 +17,20 @@
 #define HOST_OUTPUT1 D7
 #define HOST_OUTPUT2 D8
 
-#define NODE_INPUT1 D2
-#define NODE_INPUT2 D3
+#define NODE_INPUT1 D6
+#define NODE_INPUT2 D7
+#define NODE_OUTPUT1 D2
+#define NODE_OUTPUT2 D3
+#define NODE_OUTPUT3 D4
 
+#define NUM_LEDS 60 //macro of number of LEDs
+#define LED_TYPE    WS2812
+#define COLOR_ORDER GRB
 
 //-----Multiple Beacon WiFi Project----//
 //-----Author: Stuart D'Amico----------//
 //
-// Last Date Modified: 7/15/20
+// Last Date Modified: 7/16/20
 //
 // Description: This project is designed to have several node arduinos connected to a host arduino. Whenever an
 // event is triggered on a node arduino, the host reacts to this and activates the corresponding LEDs.
@@ -34,10 +41,10 @@
 //
 // Progress: At the moment, this project successfully establishes two-way connections between the host and the nodes, lights up
 // the corresponding LEDs on the host side depending on when events A and B occur, and selects patterns from the host side. 
-// Now I'm working on using libraries for LED strings attached to each node and being able to connect at least 128 nodes to a host.
+// Now I'm working on being able to connect at least 128 nodes to a host. I have written code for displaying patterns, but 
+// I cannot test it since I don't have access to WS2812 LED strips.
 
-
-//Data Structures
+//-----Data Structures----//
 struct __attribute__((packed)) NodeInfo {
   bool isHost; //flag that controls whether host or node code executes
   uint8_t pattern;
@@ -46,25 +53,30 @@ struct __attribute__((packed)) NodeInfo {
 };
 
 
-//Global Variables
+std::map<std::string, std::vector<bool>> eventMap; //list of local MAC addresses corresponding to events A and B
+
+NodeInfo myNodeInfo; //info for each node
+NodeInfo sentInfo; //info received from another node
+
+
+//-----Global Variables----//
 char hostMACAdd [18] = "8C:AA:B5:0D:FB:A4"; //change this MAC address to change the host node
 const uint8_t channel = 14;
+CRGB leds[NUM_LEDS];
 
-//list of local MAC addresses corresponding to events A and B
-std::map<std::string, std::vector<bool>> eventMap;
-
-
-NodeInfo myNodeInfo;
-NodeInfo sentInfo;
-
-
-//Function Prototypes
+//-----Function Prototypes----//
 void initESPNow();
 void sendData();
 void sendCallBackFunction(uint8_t* mac, uint8_t sendStatus);
 void receiveCallBackFunction(uint8_t *senderMAC, uint8_t *incomingData, uint8_t len);
 void processEvents();
 void processPatterns();
+
+void pattern1();
+void pattern2();
+void pattern3();
+void pattern4();
+void pattern5();
 
 void setup() {
   Serial.begin(74880);
@@ -79,7 +91,17 @@ void setup() {
     
     pinMode(NODE_INPUT1, INPUT);
     pinMode(NODE_INPUT2, INPUT);
-    
+
+
+    //add NUM_LEDS amount of LEDS to each NODE_OUTPUT
+    FastLED.addLeds<LED_TYPE,NODE_OUTPUT1,COLOR_ORDER>(leds, NUM_LEDS).setCorrection(TypicalSMD5050);
+    FastLED.addLeds<LED_TYPE,NODE_OUTPUT2,COLOR_ORDER>(leds, NUM_LEDS).setCorrection(TypicalSMD5050);
+    FastLED.addLeds<LED_TYPE,NODE_OUTPUT3,COLOR_ORDER>(leds, NUM_LEDS).setCorrection(TypicalSMD5050);
+
+//    FastLED.addLeds<NEOPIXEL, NODE_OUTPUT1>(leds, NUM_LEDS);
+  //  FastLED.addLeds<NEOPIXEL, NODE_OUTPUT2>(leds, NUM_LEDS);
+    //FastLED.addLeds<NEOPIXEL, NODE_OUTPUT3>(leds, NUM_LEDS);
+
     //Enable ESP Now
     initESPNow();
 
@@ -94,7 +116,7 @@ void setup() {
     &hostIntMAC[3], &hostIntMAC[4], &hostIntMAC[5]); 
 
     for(int i=0; i<6; ++i){
-        hostUintMAC[i] = (uint8_t) hostIntMAC[i];
+      hostUintMAC[i] = (uint8_t) hostIntMAC[i];
     }
     
     if (esp_now_add_peer(hostUintMAC, ESP_NOW_ROLE_COMBO, channel, NULL, 0) != ESP_OK) {
@@ -165,18 +187,18 @@ void loop() {
     processEvents();
     processPatterns();
     
-    sendData(NULL);
+    sendData(NULL); //send data to all nodes connected to
     delay(2000);
   }
   else {
     //node
     
     processEvents();
-
+    processPatterns();
+    
     //get host's local MAC address
     int hostIntMAC [6];
     uint8_t hostUintMAC [6];
-    
     
     sscanf(hostMACAdd, "%x:%x:%x:%x:%x:%x%*c",
     &hostIntMAC[0], &hostIntMAC[1], &hostIntMAC[2],
@@ -259,7 +281,8 @@ void sendData(uint8_t * destination) {
 }
 
 
-//iterate through all devices and check if events A and B are active for any devices
+//if host: iterate through all devices and check if events A and B are active for any devices
+//if node: check for events A and B on device
 void processEvents() {
 
   if(myNodeInfo.isHost) {
@@ -276,18 +299,18 @@ void processEvents() {
       ++it;
     }
   
-     if(eventA){
+    if(eventA){
       digitalWrite(HOST_OUTPUT1, HIGH);
-     }
-     else{
+    }
+    else{
       digitalWrite(HOST_OUTPUT1, LOW);
-     }
-     if(eventB){
+    }
+    if(eventB){
       digitalWrite(HOST_OUTPUT2, HIGH);
-     }
-     else{
+    }
+    else{
       digitalWrite(HOST_OUTPUT2, LOW);
-     }
+    }
   
     Serial.printf("A is %d, B is %d\n\r",eventA, eventB);
   }
@@ -307,25 +330,112 @@ void processEvents() {
     }
   
   }
-  
-  
 }
 
-//check each host input and select corresponding pattern
+//if host: check each host input and select corresponding pattern
+//if node: call appropriate pattern function
 void processPatterns() {
-  if(digitalRead(HOST_INPUT1) == HIGH){
-    myNodeInfo.pattern = 0x01;
+  if(myNodeInfo.isHost) {
+    if(digitalRead(HOST_INPUT1) == HIGH){
+      myNodeInfo.pattern = 0x01;
+    }
+    if(digitalRead(HOST_INPUT2) == HIGH){
+      myNodeInfo.pattern = 0x02;
+    }
+    if(digitalRead(HOST_INPUT3) == HIGH){
+      myNodeInfo.pattern = 0x03; 
+    }
+    if(digitalRead(HOST_INPUT4) == HIGH){
+      myNodeInfo.pattern = 0x04;
+    }
+    if(digitalRead(HOST_INPUT5) == HIGH){
+      myNodeInfo.pattern = 0x05;
+    }
   }
-  if(digitalRead(HOST_INPUT2) == HIGH){
-    myNodeInfo.pattern = 0x02;
+  else {
+    switch(myNodeInfo.pattern){
+      case 0x01:
+        pattern1();
+      case 0x02:
+        pattern2();
+      case 0x03:
+        pattern3();
+      case 0x04:
+        pattern4();
+      case 0x05:
+        pattern5();
+    }
   }
-  if(digitalRead(HOST_INPUT3) == HIGH){
-    myNodeInfo.pattern = 0x03; 
+}
+
+//constant fast blinking pattern
+void pattern1() {
+  for(int led = 0; led < NUM_LEDS; ++led) {
+    leds[led] = CRGB::Blue;
   }
-  if(digitalRead(HOST_INPUT4) == HIGH){
-    myNodeInfo.pattern = 0x04;
+  FastLED.show();
+  delay(30);
+  for(int led = 0; led < NUM_LEDS; ++led) {
+    leds[led] = CRGB::Black;
   }
-  if(digitalRead(HOST_INPUT5) == HIGH){
-    myNodeInfo.pattern = 0x05;
+  delay(30);
+}
+
+//light moving down line pattern
+void pattern2() {
+  for(int led = 0; led < NUM_LEDS; ++led) { 
+    leds[led] = CRGB::Green;
+    FastLED.show();
+    leds[led] = CRGB::Black;
+    delay(30);
   }
+}
+
+//every other LED lights up and alternates patterns
+void pattern3() {
+  for(int led = 0; led < NUM_LEDS; ++led) { 
+    if(led%2){ // if odd number
+      leds[led] = CRGB::Black;
+    }
+    else{     //if even number
+      leds[led] = CRGB::Red;
+    }
+  }
+  FastLED.show();
+  delay(200);
+  for(int led = 0; led < NUM_LEDS; ++led) { 
+    if(led%2){ // if odd number
+      leds[led] = CRGB::Teal;
+    }
+    else{     //if even number
+      leds[led] = CRGB::Black;
+    }
+  }
+  FastLED.show();
+  delay(200);
+}
+
+//two lights moving down line pattern 
+void pattern4() {
+  for(int led = 0; led < NUM_LEDS; ++led) { 
+    leds[led] = CRGB::Purple;
+    leds[NUM_LEDS-led] = CRGB::Gold; 
+    FastLED.show();
+    leds[led] = CRGB::Black;
+    leds[NUM_LEDS-led] = CRGB::Black;
+    delay(30);
+  }
+}
+
+//lights growing down line pattern
+void pattern5() {
+  for(int led = 0; led < NUM_LEDS; ++led) { 
+    leds[led] = CRGB::Orange;
+    FastLED.show();
+    delay(30);
+  }
+  for(int led = 0; led < NUM_LEDS; ++led) { 
+    leds[led] = CRGB::Black;
+  }
+  FastLED.show();
 }
