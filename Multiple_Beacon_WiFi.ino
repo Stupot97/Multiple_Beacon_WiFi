@@ -25,7 +25,7 @@
 #define NODE_OUTPUT3 D4
 
 #define NUM_LEDS 60 //macro of number of LEDs
-#define LED_TYPE    WS2812
+#define LED_TYPE WS2812
 #define COLOR_ORDER GRB
 
 #define NO_PATTERN 0x00
@@ -39,7 +39,7 @@
 //-----Multiple Beacon WiFi Project----//
 //-----Author: Stuart D'Amico----------//
 //
-// Last Date Modified: 7/17/20
+// Last Date Modified: 7/22/20
 //
 // Description: This project is designed to have several node arduinos connected to a host arduino. Whenever an
 // event is triggered on a node arduino, the host reacts to this and activates the corresponding LEDs.
@@ -142,8 +142,8 @@ void setup() {
 
     //Enable ESP Now
     initESPNow();
-
     esp_now_set_self_role(ESP_NOW_ROLE_COMBO);
+    
     //convert MAC address to int
     int hostIntMAC [6];
     uint8_t hostUintMAC [6];
@@ -272,7 +272,6 @@ void receiveCallBackFunction(uint8_t *senderMAC, uint8_t *incomingData, uint8_t 
     }
     if(isInHostList) {
       //if in hostList, attempt to add as peer
-      //if not in hostList, tell node to change MAC address unless peer limit is reached
       if(esp_now_add_peer(senderMAC, ESP_NOW_ROLE_COMBO, channel, NULL, 0) == ESP_OK) {
         Serial.printf("New node connected: %02x:%02x:%02x:%02x:%02x:%02x\n\r", senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5]);
       }
@@ -287,11 +286,13 @@ void receiveCallBackFunction(uint8_t *senderMAC, uint8_t *incomingData, uint8_t 
       eventMap[senderMACString] = {sentInfo.A, sentInfo.B};
     }
     else {
+      //if not in hostList, tell node to change MAC address unless peer limit is reached
       Serial.printf("Number of peers: %d \n\r", peerNum);
       if(peerNum < 20) {
         if(esp_now_add_peer(senderMAC, ESP_NOW_ROLE_COMBO, channel, NULL, 0) == ESP_OK){
           ++peerNum;
 
+          //get new host MAC and convert it to a uint8_t array
           int intNewMAC [6];
           uint8_t uintNewMAC [6];
           
@@ -302,7 +303,8 @@ void receiveCallBackFunction(uint8_t *senderMAC, uint8_t *incomingData, uint8_t 
           for(int i=0; i<6; ++i){
             uintNewMAC[i] = (uint8_t) intNewMAC[i];
           }
-          
+
+          //send request to device to change its MAC address
           Serial.printf("Sending request to %02x:%02x:%02x:%02x:%02x:%02x to change MAC Address to %02x:%02x:%02x:%02x:%02x:%02x.\n\r",
           senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5],
           uintNewMAC[0], uintNewMAC[1], uintNewMAC[2], uintNewMAC[3], uintNewMAC[4], uintNewMAC[5]);
