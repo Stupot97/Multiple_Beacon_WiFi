@@ -92,11 +92,11 @@ char * hostList [NUM_HOSTS] = { //list of nodes to be connected to
   "D2:DD:DD:DD:DD:DD",
   "E2:EE:EE:EE:EE:EE",
   "F2:FF:FF:FF:FF:FF",
-  "04:00:00:00:00:00",
   "14:11:11:11:11:11",
   "24:22:22:22:22:22",
   "34:33:33:33:33:33",
-  "44:44:44:44:44:44"
+  "44:44:44:44:44:44",
+  "54:55:55:55:55:55"
 };
 
 std::map<std::string, std::vector<bool>> eventMap; //list of local MAC addresses corresponding to events A and B
