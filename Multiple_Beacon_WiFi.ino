@@ -8,6 +8,7 @@
 //Macros
 #define RETRY_INTERVAL 5000
 #define ESP_OK 0
+#define NUM_HOSTS 21
 
 #define HOST_INPUT1 D1
 #define HOST_INPUT2 D2
@@ -33,6 +34,7 @@
 #define PATTERN3 0x03
 #define PATTERN4 0x04
 #define PATTERN5 0x05
+#define UNKNOWN_PATTERN 0x06
 
 //-----Multiple Beacon WiFi Project----//
 //-----Author: Stuart D'Amico----------//
@@ -44,7 +46,12 @@
 // The host arduino acts as a server while the node arduinos act as clients. Both the hosts and clients send data
 // back and forth to each other to update on events that may have occured at nodes or whether the host wants to change LED patterns.
 // All the software is the same on host and client arduinos, so whether an arduino is a host
-// or client is determined by its MAC Address.
+// or client is determined by its MAC Address. ESP_NOW limits devices to connect to a max of 20 peers, so in order to connect to 400 nodes,
+// the following steps are taken:
+//
+// 1. Host (hostList[0]) is powered on.
+// 2. The first 20 nodes that connect to the host have their MAC addresses changed to entries in hostList.
+// 3. Every node after the first 20 connects to one of the 20 nodes in hostList.
 //
 // Progress: At the moment, this project successfully establishes two-way connections between the host and the nodes, lights up
 // the corresponding LEDs on the host side depending on when events A and B occur, and selects patterns from the host side. 
@@ -54,20 +61,22 @@
 //-----Global Variables----//
 char hostMACAdd [18] = "8C:AA:B5:0D:FB:A4"; //change this MAC address to change the host node
 const uint8_t channel = 14;
+int peerNum = 0; //global variable for host to use to track number of peers
+volatile int secondCount = 0;
+volatile int hostNum = 0;
 CRGB leds[NUM_LEDS];
-
 
 //-----Data Structures----//
 struct __attribute__((packed)) NodeInfo {
   bool isHost; //flag that controls whether host or node code executes
   uint8_t pattern;
+  uint8_t newMACAdd [6]; //new MAC address sent from host
   bool A; //event A has occured or is occuring
   bool B; //event B has occured or is occuring
 };
 
-char * hostList [21] = { //list of 
+char * hostList [NUM_HOSTS] = { //list of nodes to be connected to
   hostMACAdd,
-  "02:00:00:00:00:00",
   "12:11:11:11:11:11",
   "22:22:22:22:22:22",
   "32:33:33:33:33:33",
@@ -86,7 +95,8 @@ char * hostList [21] = { //list of
   "04:00:00:00:00:00",
   "14:11:11:11:11:11",
   "24:22:22:22:22:22",
-  "34:33:33:33:33:33"
+  "34:33:33:33:33:33",
+  "44:44:44:44:44:44"
 };
 
 std::map<std::string, std::vector<bool>> eventMap; //list of local MAC addresses corresponding to events A and B
@@ -96,7 +106,9 @@ NodeInfo sentInfo; //info received from another node
 
 //-----Function Prototypes----//
 void initESPNow();
+void initTimer();
 void sendData();
+void ICACHE_RAM_ATTR onTime();
 void sendCallBackFunction(uint8_t* mac, uint8_t sendStatus);
 void receiveCallBackFunction(uint8_t *senderMAC, uint8_t *incomingData, uint8_t len);
 void processEvents();
@@ -118,7 +130,7 @@ void setup() {
   if (strcmp(WiFi.macAddress().c_str(), hostMACAdd)){
     //node
     myNodeInfo.isHost = false;
-    myNodeInfo.pattern = NO_PATTERN;
+    myNodeInfo.pattern = UNKNOWN_PATTERN;
     
     pinMode(NODE_INPUT1, INPUT);
     pinMode(NODE_INPUT2, INPUT);
@@ -136,19 +148,13 @@ void setup() {
     int hostIntMAC [6];
     uint8_t hostUintMAC [6];
     
-    
     sscanf(hostMACAdd, "%x:%x:%x:%x:%x:%x%*c",
     &hostIntMAC[0], &hostIntMAC[1], &hostIntMAC[2],
     &hostIntMAC[3], &hostIntMAC[4], &hostIntMAC[5]); 
 
-    for(int i=0; i<6; ++i){
+    for(int i=0; i<6; ++i) {
       hostUintMAC[i] = (uint8_t) hostIntMAC[i];
     }
-    
-    if (esp_now_add_peer(hostUintMAC, ESP_NOW_ROLE_COMBO, channel, NULL, 0) != ESP_OK) {
-      Serial.println("Error connecting to host.");
-    }
-    
     
     int sendUnsuccessfullyRegistered = esp_now_register_send_cb(sendCallBackFunction);
     int receiveUnsuccessfullyRegistered = esp_now_register_recv_cb(receiveCallBackFunction);
@@ -233,9 +239,9 @@ void loop() {
     for(int i=0; i<6; ++i){
       hostUintMAC[i] = (uint8_t) hostIntMAC[i];
     }
-     
+    
     sendData(hostUintMAC); 
-    delay(1000);
+    delay(2000);
   }
 }
 
@@ -252,59 +258,163 @@ void sendCallBackFunction(uint8_t * mac, uint8_t sendStatus) {
 
 void receiveCallBackFunction(uint8_t *senderMAC, uint8_t *incomingData, uint8_t len) {
   Serial.printf("Message from %02x:%02x:%02x:%02x:%02x:%02x: ", senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5]);
-  if(myNodeInfo.isHost){
-    memcpy(&sentInfo, incomingData, len);
-    Serial.printf("A is %d, ", sentInfo.A);
-    Serial.printf("B is %d, ", sentInfo.B);
-    Serial.printf("Pattern set to %d.\n\r", sentInfo.pattern);
-
-    //convert senderMAC into string
+  if(myNodeInfo.isHost) {
+    //host
     char senderMACString [18];
-    sprintf(senderMACString, "%d:%d:%d:%d:%d:%d", senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5]);    
-    eventMap[senderMACString] = {sentInfo.A, sentInfo.B};
-
-    processEvents();
+    sprintf(senderMACString, "%02x:%02x:%02x:%02x:%02x:%02x", senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5]);
+    bool isInHostList = false;
     
-    if(esp_now_add_peer(senderMAC, ESP_NOW_ROLE_COMBO, channel, NULL, 0) == ESP_OK){
-      Serial.printf("New node connected: %02x:%02x:%02x:%02x:%02x:%02x\n\r", senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5]);
+    for(int i=1; i<20; ++i){
+      if(!strcmp(senderMACString, hostList[i])) { //if senderMAC is in hostList, add as a peer
+        isInHostList = true;
+        break;
+      }
+    }
+    if(isInHostList) {
+      //if in hostList, attempt to add as peer
+      //if not in hostList, tell node to change MAC address unless peer limit is reached
+      if(esp_now_add_peer(senderMAC, ESP_NOW_ROLE_COMBO, channel, NULL, 0) == ESP_OK) {
+        Serial.printf("New node connected: %02x:%02x:%02x:%02x:%02x:%02x\n\r", senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5]);
+      }
+      memcpy(&sentInfo, incomingData, len);
+      Serial.printf("A is %d, ", sentInfo.A);
+      Serial.printf("B is %d, ", sentInfo.B);
+      Serial.printf("Pattern set to %d.\n\r", sentInfo.pattern);
+  
+      //convert senderMAC into string
+      char senderMACString [18];
+      sprintf(senderMACString, "%d:%d:%d:%d:%d:%d", senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5]);    
+      eventMap[senderMACString] = {sentInfo.A, sentInfo.B};
+    }
+    else {
+      Serial.printf("Number of peers: %d \n\r", peerNum);
+      if(peerNum < 20) {
+        if(esp_now_add_peer(senderMAC, ESP_NOW_ROLE_COMBO, channel, NULL, 0) == ESP_OK){
+          ++peerNum;
+
+          int intNewMAC [6];
+          uint8_t uintNewMAC [6];
+          
+          sscanf(hostList[peerNum], "%02x:%02x:%02x:%02x:%02x:%02x%*c",
+            &intNewMAC[0], &intNewMAC[1], &intNewMAC[2],
+            &intNewMAC[3], &intNewMAC[4], &intNewMAC[5]); 
+
+          for(int i=0; i<6; ++i){
+            uintNewMAC[i] = (uint8_t) intNewMAC[i];
+          }
+          
+          Serial.printf("Sending request to %02x:%02x:%02x:%02x:%02x:%02x to change MAC Address to %02x:%02x:%02x:%02x:%02x:%02x.\n\r",
+          senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5],
+          uintNewMAC[0], uintNewMAC[1], uintNewMAC[2], uintNewMAC[3], uintNewMAC[4], uintNewMAC[5]);
+
+          for(int i = 0; i<6; ++i) {
+             myNodeInfo.newMACAdd [i] = uintNewMAC[i];
+          }
+          sendData(senderMAC);
+          for(int i = 0; i<6; ++i) {
+             myNodeInfo.newMACAdd [i] = 0x00;
+          }
+          esp_now_del_peer(senderMAC);
+        }
+      }
     }
   }
   else{
+    //node
     memcpy(&sentInfo, incomingData, len);
+    Serial.printf("Set pattern to %d.", sentInfo.pattern);
+    
+    //check for MAC address change request
+    bool isNullMAC = true;
+    for(int i=0; i<6; ++i){
+      if(sentInfo.newMACAdd[i]!=0x00) {
+        isNullMAC = false;
+      }  
+    }
+
+    if(!isNullMAC) { //if MAC address change request was sent
+      if(wifi_set_macaddr(STATION_IF, &sentInfo.newMACAdd[0]) == ESP_OK) {
+        Serial.println("MAC Address Change Request.");
+        Serial.println("MAC Address Changed to: " + WiFi.softAPmacAddress());
+      }
+      else{
+        Serial.println("MAC Address unsuccessfully changed."); 
+      }
+      initTimer();
+    }
+    Serial.println();
     Serial.printf("Node: Pattern %d selected.\n\r", sentInfo.pattern);
     myNodeInfo.pattern = sentInfo.pattern;
   }
 }
 
+void ICACHE_RAM_ATTR onTime() {
+  ++secondCount;
+  if(secondCount == 5 && myNodeInfo.pattern == UNKNOWN_PATTERN) { //if 4 seconds have passed
+    int intMAC [6];
+    uint8_t uintMAC [6];
+    
+    sscanf(hostList[hostNum], "%x:%x:%x:%x:%x:%x%*c",
+      &intMAC[0], &intMAC[1], &intMAC[2],
+      &intMAC[3], &intMAC[4], &intMAC[5]); 
+
+    for(int i=0; i<6; ++i){
+      uintMAC[i] = (uint8_t) intMAC[i];
+    }
+    esp_now_del_peer(uintMAC);
+    hostNum = (hostNum + 1) % NUM_HOSTS;
+    
+    sscanf(hostList[hostNum], "%x:%x:%x:%x:%x:%x%*c",
+      &intMAC[0], &intMAC[1], &intMAC[2],
+      &intMAC[3], &intMAC[4], &intMAC[5]); 
+      
+    for(int i=0; i<6; ++i){
+      uintMAC[i] = (uint8_t) intMAC[i];
+    }
+    esp_now_add_peer(uintMAC, ESP_NOW_ROLE_COMBO, channel, NULL, 0);
+  }
+    
+  timer1_write(5000000);
+}
+
 void initESPNow() {
-  if(myNodeInfo.isHost){
-    WiFi.mode(WIFI_STA); // Host mode for esp-now host
-    WiFi.disconnect();
+  if(myNodeInfo.isHost) {
     Serial.println("This is an ESP-Now host.");
   }
   else{
-     WiFi.mode(WIFI_STA); // Station mode for esp-now node
-     WiFi.disconnect();
      Serial.println("This is an ESP-Now node.");
   }
-  if (esp_now_init() != 0){
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect();
+  if (esp_now_init() != 0) {
     Serial.println("ESP_Now init failed...");
     delay(RETRY_INTERVAL);
     ESP.restart();
   }
 }
 
+void initTimer() {
+  //Initialize Ticker every 1s
+  timer1_attachInterrupt(onTime); // Add ISR Function
+  timer1_enable(TIM_DIV16, TIM_EDGE, TIM_SINGLE);
+  /* Dividers:
+    TIM_DIV1 = 0,   //80MHz (80 ticks/us - 104857.588 us max)
+    TIM_DIV16 = 1,  //5MHz (5 ticks/us - 1677721.4 us max)
+    TIM_DIV256 = 3  //312.5Khz (1 tick = 3.2us - 26843542.4 us max)
+  Reloads:
+    TIM_SINGLE  0 //on interrupt routine you need to write a new value to start the timer again
+    TIM_LOOP  1 //on interrupt the counter will start with the same value again
+  */
+  
+  // Arm the Timer for our 1s Interval
+  secondCount = 0;
+  timer1_write(5000000); // 5000000 / 5 ticks per us from TIM_DIV16 == 1,000,000 us interval  
+}
+
 void sendData(uint8_t * destination) {
-  if(myNodeInfo.isHost){
-     uint8_t message[sizeof(myNodeInfo)];
-     memcpy(message, &myNodeInfo, sizeof(myNodeInfo));
-     esp_now_send(destination, message, sizeof(myNodeInfo));
-  }
-  else{
-    uint8_t message[sizeof(myNodeInfo)];
-    memcpy(message, &myNodeInfo, sizeof(myNodeInfo));
-    esp_now_send(destination, message, sizeof(myNodeInfo));
-  }
+  uint8_t message[sizeof(myNodeInfo)];
+  memcpy(message, &myNodeInfo, sizeof(myNodeInfo));
+  esp_now_send(destination, message, sizeof(myNodeInfo));
 }
 
 
@@ -397,7 +507,9 @@ void processPatterns() {
         break;
       case PATTERN5:
         pattern5();
+        break;
       case NO_PATTERN:
+      case UNKNOWN_PATTERN:
         noPattern();
     }
   }
