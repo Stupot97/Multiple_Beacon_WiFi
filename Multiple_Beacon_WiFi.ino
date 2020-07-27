@@ -58,6 +58,7 @@
 // Now I'm working on being able to connect 400 nodes to a host. I have written code for displaying patterns, but 
 // I cannot test it since I don't have access to WS2812 LED strips.
 
+
 //-----Global Variables----//
 char hostMACAdd [18] = "8C:AA:B5:0D:FB:A4"; //change this MAC address to change the host node
 const uint8_t channel = 14;
@@ -69,13 +70,16 @@ CRGB leds[NUM_LEDS];
 //-----Data Structures----//
 struct __attribute__((packed)) NodeInfo {
   bool isHost; //flag that controls whether host or node code executes
+  bool isSubHost = false; //flag that controls if subhost code executes or not
   uint8_t pattern;
-  uint8_t newMACAdd [6]; //new MAC address sent from host
   bool A; //event A has occured or is occuring
   bool B; //event B has occured or is occuring
+  
+  std::map<std::string, std::vector<bool>> eventMap; //list of local MAC addresses corresponding to events A and B
+  uint8_t newMACAdd [6]; //new MAC address sent from host
 };
 
-char * hostList [NUM_HOSTS] = { //list of nodes to be connected to
+char * hostList [NUM_HOSTS] = { //list of subhosts to be connected to
   hostMACAdd,
   "12:11:11:11:11:11",
   "22:22:22:22:22:22",
@@ -98,8 +102,6 @@ char * hostList [NUM_HOSTS] = { //list of nodes to be connected to
   "44:44:44:44:44:44",
   "54:55:55:55:55:55"
 };
-
-std::map<std::string, std::vector<bool>> eventMap; //list of local MAC addresses corresponding to events A and B
 
 NodeInfo myNodeInfo; //info for each node
 NodeInfo sentInfo; //info received from another node
@@ -282,8 +284,18 @@ void receiveCallBackFunction(uint8_t *senderMAC, uint8_t *incomingData, uint8_t 
   
       //convert senderMAC into string
       char senderMACString [18];
-      sprintf(senderMACString, "%d:%d:%d:%d:%d:%d", senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5]);    
-      eventMap[senderMACString] = {sentInfo.A, sentInfo.B};
+      sprintf(senderMACString, "%02x:%02x:%02x:%02x:%02x:%02x", senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5]);    
+      myNodeInfo.eventMap[senderMACString] = {sentInfo.A, sentInfo.B};
+
+      //if node is a subHost
+      if(sentInfo.isSubHost) {
+        std::map<std::string, std::vector<bool>>::iterator it = sentInfo.eventMap.begin();
+        
+        while(it != sentInfo.eventMap.end()) {
+          myNodeInfo.eventMap[it->first] = {it->second[0], it->second[1]};
+          ++it;
+        }
+      }
     }
     else {
       //if not in hostList, tell node to change MAC address unless peer limit is reached
@@ -324,29 +336,41 @@ void receiveCallBackFunction(uint8_t *senderMAC, uint8_t *incomingData, uint8_t 
   else{
     //node
     memcpy(&sentInfo, incomingData, len);
-    Serial.printf("Set pattern to %d.", sentInfo.pattern);
+
+    char senderMACString [18];
+    sprintf(senderMACString, "%02x:%02x:%02x:%02x:%02x:%02x", senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5]);
+    if(strcmp(senderMACString, hostMACAdd)){
+      //if sent from node
+      myNodeInfo.eventMap[senderMACString] = {sentInfo.A, sentInfo.B};
+    }
+    else{
+      //if sent from host
+      Serial.printf("Set pattern to %d.", sentInfo.pattern);
     
-    //check for MAC address change request
-    bool isNullMAC = true;
-    for(int i=0; i<6; ++i){
-      if(sentInfo.newMACAdd[i]!=0x00) {
-        isNullMAC = false;
-      }  
+      //check for MAC address change request
+      bool isNullMAC = true;
+      for(int i=0; i<6; ++i) {
+        if(sentInfo.newMACAdd[i]!=0x00) {
+          isNullMAC = false;
+        }  
+      }
+  
+      if(!isNullMAC) { //if MAC address change request was sent
+        if(wifi_set_macaddr(STATION_IF, &sentInfo.newMACAdd[0]) == ESP_OK) {
+          Serial.println("MAC Address Change Request.");
+          Serial.println("MAC Address Changed to: " + WiFi.softAPmacAddress());
+          myNodeInfo.isSubHost = true;
+        }
+        else{
+          Serial.println("MAC Address unsuccessfully changed."); 
+        }
+        initTimer();
+      }
+      Serial.println();
+      Serial.printf("Node: Pattern %d selected.\n\r", sentInfo.pattern);
+      myNodeInfo.pattern = sentInfo.pattern;
     }
 
-    if(!isNullMAC) { //if MAC address change request was sent
-      if(wifi_set_macaddr(STATION_IF, &sentInfo.newMACAdd[0]) == ESP_OK) {
-        Serial.println("MAC Address Change Request.");
-        Serial.println("MAC Address Changed to: " + WiFi.softAPmacAddress());
-      }
-      else{
-        Serial.println("MAC Address unsuccessfully changed."); 
-      }
-      initTimer();
-    }
-    Serial.println();
-    Serial.printf("Node: Pattern %d selected.\n\r", sentInfo.pattern);
-    myNodeInfo.pattern = sentInfo.pattern;
   }
 }
 
@@ -356,7 +380,7 @@ void ICACHE_RAM_ATTR onTime() {
     int intMAC [6];
     uint8_t uintMAC [6];
     
-    sscanf(hostList[hostNum], "%x:%x:%x:%x:%x:%x%*c",
+    sscanf(hostList[hostNum], "%02x:%02x:%02x:%02x:%02x:%02x%*c",
       &intMAC[0], &intMAC[1], &intMAC[2],
       &intMAC[3], &intMAC[4], &intMAC[5]); 
 
@@ -366,7 +390,7 @@ void ICACHE_RAM_ATTR onTime() {
     esp_now_del_peer(uintMAC);
     hostNum = (hostNum + 1) % NUM_HOSTS;
     
-    sscanf(hostList[hostNum], "%x:%x:%x:%x:%x:%x%*c",
+    sscanf(hostList[hostNum], "%02x:%02x:%02x:%02x:%02x:%02x%*c",
       &intMAC[0], &intMAC[1], &intMAC[2],
       &intMAC[3], &intMAC[4], &intMAC[5]); 
       
@@ -388,7 +412,7 @@ void initESPNow() {
   }
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
-  if (esp_now_init() != 0) {
+  if (esp_now_init() != ESP_OK) {
     Serial.println("ESP_Now init failed...");
     delay(RETRY_INTERVAL);
     ESP.restart();
@@ -425,11 +449,11 @@ void processEvents() {
   //if node: check for events A and B on device
   if(myNodeInfo.isHost) {
     //host
-    std::map<std::string, std::vector<bool>>::iterator it = eventMap.begin();
+    std::map<std::string, std::vector<bool>>::iterator it = myNodeInfo.eventMap.begin();
     bool eventA = false;
     bool eventB = false;
     
-    while(it != eventMap.end()){
+    while(it != myNodeInfo.eventMap.end()){
       
       eventA |= it->second[0];
       eventB |= it->second[1];
@@ -450,7 +474,7 @@ void processEvents() {
       digitalWrite(HOST_OUTPUT2, LOW);
     }
   
-    Serial.printf("Host: A is %d, B is %d\n\r",eventA, eventB);
+    Serial.printf("Host: A is %d, B is %d\n\r", eventA, eventB);
   }
   else{
     //node
