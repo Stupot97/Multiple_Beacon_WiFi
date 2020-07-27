@@ -39,7 +39,7 @@
 //-----Multiple Beacon WiFi Project----//
 //-----Author: Stuart D'Amico----------//
 //
-// Last Date Modified: 7/22/20
+// Last Date Modified: 7/27/20
 //
 // Description: This project is designed to have several node arduinos connected to a host arduino. Whenever an
 // event is triggered on a node arduino, the host reacts to this and activates the corresponding LEDs.
@@ -259,11 +259,11 @@ void sendCallBackFunction(uint8_t * mac, uint8_t sendStatus) {
 }
 
 void receiveCallBackFunction(uint8_t *senderMAC, uint8_t *incomingData, uint8_t len) {
-  Serial.printf("Message from %02x:%02x:%02x:%02x:%02x:%02x: ", senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5]);
+  Serial.printf("Message from %02X:%02X:%02X:%02X:%02X:%02X: ", senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5]);
   if(myNodeInfo.isHost) {
     //host
     char senderMACString [18];
-    sprintf(senderMACString, "%02x:%02x:%02x:%02x:%02x:%02x", senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5]);
+    sprintf(senderMACString, "%02X:%02X:%02X:%02X:%02X:%02X", senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5]);
     bool isInHostList = false;
     
     for(int i=1; i<20; ++i){
@@ -275,7 +275,7 @@ void receiveCallBackFunction(uint8_t *senderMAC, uint8_t *incomingData, uint8_t 
     if(isInHostList) {
       //if in hostList, attempt to add as peer
       if(esp_now_add_peer(senderMAC, ESP_NOW_ROLE_COMBO, channel, NULL, 0) == ESP_OK) {
-        Serial.printf("New node connected: %02x:%02x:%02x:%02x:%02x:%02x\n\r", senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5]);
+        Serial.printf("New node connected: %02X:%02X:%02X:%02X:%02X:%02X\n\r", senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5]);
       }
       memcpy(&sentInfo, incomingData, len);
       Serial.printf("A is %d, ", sentInfo.A);
@@ -284,7 +284,7 @@ void receiveCallBackFunction(uint8_t *senderMAC, uint8_t *incomingData, uint8_t 
   
       //convert senderMAC into string
       char senderMACString [18];
-      sprintf(senderMACString, "%02x:%02x:%02x:%02x:%02x:%02x", senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5]);    
+      sprintf(senderMACString, "%02X:%02X:%02X:%02X:%02X:%02X", senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5]);    
       myNodeInfo.eventMap[senderMACString] = {sentInfo.A, sentInfo.B};
 
       //if node is a subHost
@@ -308,7 +308,7 @@ void receiveCallBackFunction(uint8_t *senderMAC, uint8_t *incomingData, uint8_t 
           int intNewMAC [6];
           uint8_t uintNewMAC [6];
           
-          sscanf(hostList[peerNum], "%02x:%02x:%02x:%02x:%02x:%02x%*c",
+          sscanf(hostList[peerNum], "%02X:%02X:%02X:%02X:%02X:%02X%*c",
             &intNewMAC[0], &intNewMAC[1], &intNewMAC[2],
             &intNewMAC[3], &intNewMAC[4], &intNewMAC[5]); 
 
@@ -317,7 +317,7 @@ void receiveCallBackFunction(uint8_t *senderMAC, uint8_t *incomingData, uint8_t 
           }
 
           //send request to device to change its MAC address
-          Serial.printf("Sending request to %02x:%02x:%02x:%02x:%02x:%02x to change MAC Address to %02x:%02x:%02x:%02x:%02x:%02x.\n\r",
+          Serial.printf("Sending request to %02X:%02X:%02X:%02X:%02X:%02X to change MAC Address to %02X:%02X:%02X:%02X:%02X:%02X.\n\r",
           senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5],
           uintNewMAC[0], uintNewMAC[1], uintNewMAC[2], uintNewMAC[3], uintNewMAC[4], uintNewMAC[5]);
 
@@ -338,7 +338,8 @@ void receiveCallBackFunction(uint8_t *senderMAC, uint8_t *incomingData, uint8_t 
     memcpy(&sentInfo, incomingData, len);
 
     char senderMACString [18];
-    sprintf(senderMACString, "%02x:%02x:%02x:%02x:%02x:%02x", senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5]);
+    sprintf(senderMACString, "%02X:%02X:%02X:%02X:%02X:%02X", senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5]);
+    
     if(strcmp(senderMACString, hostMACAdd)){
       //if sent from node
       myNodeInfo.eventMap[senderMACString] = {sentInfo.A, sentInfo.B};
@@ -380,7 +381,7 @@ void ICACHE_RAM_ATTR onTime() {
     int intMAC [6];
     uint8_t uintMAC [6];
     
-    sscanf(hostList[hostNum], "%02x:%02x:%02x:%02x:%02x:%02x%*c",
+    sscanf(hostList[hostNum], "%02X:%02X:%02X:%02X:%02X:%02X%*c",
       &intMAC[0], &intMAC[1], &intMAC[2],
       &intMAC[3], &intMAC[4], &intMAC[5]); 
 
@@ -390,7 +391,7 @@ void ICACHE_RAM_ATTR onTime() {
     esp_now_del_peer(uintMAC);
     hostNum = (hostNum + 1) % NUM_HOSTS;
     
-    sscanf(hostList[hostNum], "%02x:%02x:%02x:%02x:%02x:%02x%*c",
+    sscanf(hostList[hostNum], "%02X:%02X:%02X:%02X:%02X:%02X%*c",
       &intMAC[0], &intMAC[1], &intMAC[2],
       &intMAC[3], &intMAC[4], &intMAC[5]); 
       
