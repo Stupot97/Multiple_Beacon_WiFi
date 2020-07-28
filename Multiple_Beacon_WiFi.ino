@@ -39,7 +39,7 @@
 //-----Multiple Beacon WiFi Project----//
 //-----Author: Stuart D'Amico----------//
 //
-// Last Date Modified: 7/27/20
+// Last Date Modified: 7/22/20
 //
 // Description: This project is designed to have several node arduinos connected to a host arduino. Whenever an
 // event is triggered on a node arduino, the host reacts to this and activates the corresponding LEDs.
@@ -145,18 +145,20 @@ void setup() {
     //Enable ESP Now
     initESPNow();
     esp_now_set_self_role(ESP_NOW_ROLE_COMBO);
-    
-    //convert MAC address to int
+
+    //get host's local MAC address
     int hostIntMAC [6];
     uint8_t hostUintMAC [6];
     
-    sscanf(hostMACAdd, "%x:%x:%x:%x:%x:%x%*c",
+    sscanf(hostList[hostNum], "%x:%x:%x:%x:%x:%x%*c",
     &hostIntMAC[0], &hostIntMAC[1], &hostIntMAC[2],
     &hostIntMAC[3], &hostIntMAC[4], &hostIntMAC[5]); 
 
-    for(int i=0; i<6; ++i) {
+    for(int i=0; i<6; ++i){
       hostUintMAC[i] = (uint8_t) hostIntMAC[i];
     }
+    
+    esp_now_add_peer(hostUintMAC, ESP_NOW_ROLE_COMBO, channel, NULL, 0);
     
     int sendUnsuccessfullyRegistered = esp_now_register_send_cb(sendCallBackFunction);
     int receiveUnsuccessfullyRegistered = esp_now_register_recv_cb(receiveCallBackFunction);
@@ -230,11 +232,10 @@ void loop() {
     processEvents();
     processPatterns();
     
-    //get host's local MAC address
     int hostIntMAC [6];
     uint8_t hostUintMAC [6];
     
-    sscanf(hostMACAdd, "%x:%x:%x:%x:%x:%x%*c",
+    sscanf(hostList[hostNum], "%x:%x:%x:%x:%x:%x%*c",
     &hostIntMAC[0], &hostIntMAC[1], &hostIntMAC[2],
     &hostIntMAC[3], &hostIntMAC[4], &hostIntMAC[5]); 
 
@@ -253,7 +254,6 @@ void loop() {
 
 //-----Function Definitions----//
 
-
 void sendCallBackFunction(uint8_t * mac, uint8_t sendStatus) {
   Serial.println(sendStatus == ESP_OK ? "Delivery Success!" : "Delivery Fail.");
 }
@@ -263,7 +263,7 @@ void receiveCallBackFunction(uint8_t *senderMAC, uint8_t *incomingData, uint8_t 
   if(myNodeInfo.isHost) {
     //host
     char senderMACString [18];
-    sprintf(senderMACString, "%02X:%02X:%02X:%02X:%02X:%02X", senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5]);
+    sprintf(senderMACString, "%02x:%02x:%02x:%02x:%02x:%02x", senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5]);
     bool isInHostList = false;
     
     for(int i=1; i<20; ++i){
@@ -284,7 +284,7 @@ void receiveCallBackFunction(uint8_t *senderMAC, uint8_t *incomingData, uint8_t 
   
       //convert senderMAC into string
       char senderMACString [18];
-      sprintf(senderMACString, "%02X:%02X:%02X:%02X:%02X:%02X", senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5]);    
+      sprintf(senderMACString, "%02x:%02x:%02x:%02x:%02x:%02x", senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5]);    
       myNodeInfo.eventMap[senderMACString] = {sentInfo.A, sentInfo.B};
 
       //if node is a subHost
@@ -308,7 +308,7 @@ void receiveCallBackFunction(uint8_t *senderMAC, uint8_t *incomingData, uint8_t 
           int intNewMAC [6];
           uint8_t uintNewMAC [6];
           
-          sscanf(hostList[peerNum], "%02X:%02X:%02X:%02X:%02X:%02X%*c",
+          sscanf(hostList[peerNum], "%02x:%02x:%02x:%02x:%02x:%02x%*c",
             &intNewMAC[0], &intNewMAC[1], &intNewMAC[2],
             &intNewMAC[3], &intNewMAC[4], &intNewMAC[5]); 
 
@@ -317,7 +317,7 @@ void receiveCallBackFunction(uint8_t *senderMAC, uint8_t *incomingData, uint8_t 
           }
 
           //send request to device to change its MAC address
-          Serial.printf("Sending request to %02X:%02X:%02X:%02X:%02X:%02X to change MAC Address to %02X:%02X:%02X:%02X:%02X:%02X.\n\r",
+          Serial.printf("Sending request to %02x:%02x:%02x:%02x:%02x:%02x to change MAC Address to %02x:%02x:%02x:%02x:%02x:%02x.\n\r",
           senderMAC[0], senderMAC[1], senderMAC[2], senderMAC[3], senderMAC[4], senderMAC[5],
           uintNewMAC[0], uintNewMAC[1], uintNewMAC[2], uintNewMAC[3], uintNewMAC[4], uintNewMAC[5]);
 
@@ -352,12 +352,14 @@ void receiveCallBackFunction(uint8_t *senderMAC, uint8_t *incomingData, uint8_t 
       bool isNullMAC = true;
       for(int i=0; i<6; ++i) {
         if(sentInfo.newMACAdd[i]!=0x00) {
+          Serial.printf("HERE3\n");
           isNullMAC = false;
         }  
       }
   
       if(!isNullMAC) { //if MAC address change request was sent
         if(wifi_set_macaddr(STATION_IF, &sentInfo.newMACAdd[0]) == ESP_OK) {
+          Serial.printf("HERE4\n");
           Serial.println("MAC Address Change Request.");
           Serial.println("MAC Address Changed to: " + WiFi.softAPmacAddress());
           myNodeInfo.isSubHost = true;
@@ -381,7 +383,7 @@ void ICACHE_RAM_ATTR onTime() {
     int intMAC [6];
     uint8_t uintMAC [6];
     
-    sscanf(hostList[hostNum], "%02X:%02X:%02X:%02X:%02X:%02X%*c",
+    sscanf(hostList[hostNum], "%02x:%02x:%02x:%02x:%02x:%02x%*c",
       &intMAC[0], &intMAC[1], &intMAC[2],
       &intMAC[3], &intMAC[4], &intMAC[5]); 
 
@@ -391,7 +393,7 @@ void ICACHE_RAM_ATTR onTime() {
     esp_now_del_peer(uintMAC);
     hostNum = (hostNum + 1) % NUM_HOSTS;
     
-    sscanf(hostList[hostNum], "%02X:%02X:%02X:%02X:%02X:%02X%*c",
+    sscanf(hostList[hostNum], "%02x:%02x:%02x:%02x:%02x:%02x%*c",
       &intMAC[0], &intMAC[1], &intMAC[2],
       &intMAC[3], &intMAC[4], &intMAC[5]); 
       
